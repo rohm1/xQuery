@@ -20,7 +20,7 @@ class xQuery {
 	 *
 	 * @var array
 	 */
-	public static $ATTRS = array('#' => 'id', '.' => 'class');
+	public static $ATTRS = ['#' => 'id', '.' => 'class'];
 
 	/**
 	 * The document
@@ -82,7 +82,7 @@ class xQuery {
 		$_doc->strictErrorChecking = false;
 
 		if (is_string($doc)) {
-			if (preg_match('#^<([a-zA-Z]+)#', trim($doc))) {
+			if (preg_match('#^<(!?)([a-zA-Z]+)#', trim($doc))) {
 				@$_doc->loadHTML($doc);
 			}
 			else {
@@ -130,7 +130,16 @@ class xQuery {
 	 * @return xQuery
 	 */
 	public function eq($index) {
-		return self::mkRes($this->doc->childNodes->item($index), $this->selector);
+		return self::mkRes($this->doc->childNodes->item($index));
+	}
+
+	/**
+	 * Returns the text version of the document
+	 *
+	 * @return string
+	 */
+	public function text() {
+		return $this->doc->textContent;
 	}
 
 	/**
@@ -140,6 +149,20 @@ class xQuery {
 	 */
 	public function html() {
 		return $this->doc->saveHtml();
+	}
+
+	/**
+	 * Returns an attribute of the document
+	 *
+	 * @param string $attr
+	 * @return string|null
+	 */
+	public function attr($attr) {
+		if (!isset($this->doc->attributes[$attr])) {
+			return null;
+		}
+
+		return $this->doc->attributes[$attr];
 	}
 
 	/**
@@ -167,6 +190,25 @@ class xQuery {
 		$xpath = self::parse($selector);
 
 		//TODO implement
+	}
+
+	/**
+	 * Iterates over the nodes of the document with a callback
+	 *
+	 * The first argument of the callback are the nodes of the document
+	 * converted to xQuery objects, and the second the arguments $arg.
+	 *
+	 * @param callable $callback a callback object
+	 * @param mixed $args arguments to pass to the callback object
+	 * @return void
+	 * @see call_user_func
+	 */
+	public function each($callback, $args = null) {
+		if ($this->doc != null) {
+			foreach ($this->doc->childNodes as $node) {
+				call_user_func($callback, $this->mkRes($node), $args);
+			}
+		}
 	}
 
 	/**
@@ -204,6 +246,12 @@ class xQuery {
 				$crt_rule['tagName'] = '*';
 				$i++;
 			}
+			elseif ($crt_char == ':') {
+				if (!isset($crt_rule['pseudo_selectors'])) {
+					$crt_rule['pseudo_selectors'] = [];
+				}
+				$crt_rule['pseudo_selectors'][] = self::extractPseudoSelector($selector, $l, $i);
+			}
 			else {
 				$rules[] = $crt_rule;
 				$crt_rule = ['direct_child' => self::findNextRule($selector, $l, $i)];
@@ -224,7 +272,7 @@ class xQuery {
 	 */
 	private function extractClassOrId($selector, $l, &$offset) {
 		$i = 1;
-		while ($i < $l && preg_match('/[a-zA-Z0-9_-]/', substr($selector, $offset + $i, 1))) {
+		while ($offset + $i < $l && preg_match('/[a-zA-Z0-9_-]/', substr($selector, $offset + $i, 1))) {
 			$i++;
 		}
 
@@ -243,13 +291,51 @@ class xQuery {
 	 */
 	private function extractTagName($selector, $l, &$offset) {
 		$i = 1;
-		while ($i < $l && preg_match('/[a-zA-Z]/', substr($selector, $offset + $i, 1))) {
+		while ($offset + $i < $l && preg_match('/[a-zA-Z]/', substr($selector, $offset + $i, 1))) {
 			$i++;
 		}
 
 		$attr = substr($selector, $offset, $i);
 		$offset += $i;
 		return $attr;
+	}
+
+	/**
+	 * Extracts a pseudo selector
+	 *
+	 * @param string $selector
+	 * @param int $l
+	 * @param int $offset
+	 * @return array
+	 */
+	private function extractPseudoSelector($selector, $l, &$offset) {
+		$pseudo_selector = [];
+
+		$i = 1;
+		while ($offset + $i < $l && preg_match('/[a-z-]/', substr($selector, $offset + $i, 1))) {
+			$i++;
+		}
+		$pseudo_selector['name'] = substr($selector, $offset + 1, $i - 1);
+		$offset += $i;
+
+		if (substr($selector, $offset, 1) == '(') {
+			$i = 1;
+			$openned = 1;
+			while ($offset + $i < $l && $openned != 0) {
+				$crt_char = substr($selector, $offset + $i, 1);
+				if ($crt_char == '(') {
+					$openned++;
+				}
+				elseif ($crt_char == ')') {
+					$openned--;
+				}
+				$i++;
+			}
+			$pseudo_selector['value'] = substr($selector, $offset + 1, $i - 2);
+			$offset += $i;
+		}
+
+		return $pseudo_selector;
 	}
 
 	/**
@@ -286,15 +372,16 @@ class xQuery {
 		foreach ($rules as $rule) {
 			$properties = [];
 
-			if ($rule['direct_child']) {$xpath .= '/';}
-			else                       {$xpath .= '//';}
+			if ($rule['direct_child']) {$xpath .= '/*';}
+			else                       {$xpath .= '/descendant::*';}
 
-			if (isset($rule['tagName'])) {$xpath .= $rule['tagName'];}
-			else                         {$xpath .= '*';}
+			if (isset($rule['tagName']) && $rule['tagName'] != '*') {
+				$properties[] = 'name() = "' .$rule['tagName'] . '"';
+			}
 
 			if (isset($rule['class'])) {
 				foreach ($rule['class'] as $class) {
-					$properties[] = 'contains(concat(" ", @class, " "), concat(" ", "' . $class . '", " "))';
+					$properties[] = 'contains(concat(" ", @class, " "), " ' . $class . ' ")';
 				}
 			}
 
@@ -302,8 +389,40 @@ class xQuery {
 				$properties[] = '@id="' . $rule['id'] . '"';
 			}
 
-			if (count($properties) > 0) {
-				$xpath .= '[' . implode(' and ', $properties) . ']';
+			if (isset($rule['pseudo_selectors'])) {
+				foreach ($rule['pseudo_selectors'] as $pseudo_selector) {
+					switch ($pseudo_selector['name']) {
+						case 'first-child':
+							$properties[] = 'position() = 1';
+							break;
+						case 'last-child':
+							$properties[] = 'position() = last()';
+							break;
+						case 'nth-child':
+							$position = $pseudo_selector['value'];
+							if (is_numeric($position)) {
+								$properties[] = 'position() = ' . $position;
+							}
+							else {
+								preg_match_all('/^(\-)?([0-9]+)?(\+|\-)?([0-9])+(n)?(\+|\-)?(\-?[0-9]+)?/', $position, $params);
+								$offset = ($params[1][0] == '-' ? -$params[2][0] : $params[2][0]) + ($params[6][0] == '-' ? -$params[7][0] : $params[7][0]);
+								$factor = $params[3][0] == '-' ? -$params[4][0] : $params[4][0];
+
+								$properties[] = '(position() + ' . (-$offset) . ') mod ' . $factor . ' = 0' . ($offset >= 0 ? ' and position() >= ' .$offset : '');
+							}
+							break;
+						case 'not':
+							// not value is a CSS selector: parse it
+							$properties[] = 'not(' . preg_replace('/^(\/(descendant::)?\*\[)(.*)(\])/U', '$3', self::parse($pseudo_selector['value'])) . ')';
+							break;
+						default:
+							break;
+					}
+				}
+			}
+
+			foreach ($properties as $property) {
+				$xpath .= '[' . $property . ']';
 			}
 		}
 
@@ -317,8 +436,8 @@ class xQuery {
 	 * @param string $selector
 	 * @return xQuery
 	 */
-	private function mkRes($res, $selector) {
-		return new xQuery($res, $selector, $this);
+	private function mkRes($res, $selector = '') {
+		return new xQuery($res, $selector != '' ? $selector : $this->selector, $this);
 	}
 
 }
