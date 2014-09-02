@@ -1,0 +1,17 @@
+{
+    "name": "rohm1/xquery",
+    "repositories": [
+        {
+            "type": "git",
+            "url": "/home/romain/Desktop/xquery"
+        }
+    ],
+    "require": {
+        "rohm1/css2xpath": "dev-master"
+    },
+    "autoload": {
+        "psr-0": {
+            "RPBase\\": ""
+        }
+    }
+}
