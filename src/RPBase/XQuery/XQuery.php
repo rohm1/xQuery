@@ -239,20 +239,27 @@ class XQuery
     /**
      * Iterates over the nodes of the document with a callback
      *
-     * The first argument of the callback are the nodes of the document
-     * converted to XQuery objects, and the second the arguments $arg.
+     * Callback prototype: void callback(XQuery $node, Event $event)
      *
      * @param callable $callback a callback object
-     * @param mixed $args arguments to pass to the callback object
      * @return \RPBase\XQuery\XQuery
      * @see call_user_func
      */
-    public function each($callback, $args = null)
+    public function each($callback)
     {
         if ($this->doc !== null) {
+
+            // create a callback event we can use to break the loop
+            $event = new Event();
+
             foreach ($this->doc->childNodes as $node) {
-                call_user_func($callback, $this->mkRes($node), $args);
+                call_user_func($callback, $this->mkRes($node), $event);
+
+                if ($event->isPropagationStopped()) {
+                    break;
+                }
             }
+
         }
 
         return $this;

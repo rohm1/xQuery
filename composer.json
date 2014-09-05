@@ -3,7 +3,7 @@
     "repositories": [
         {
             "type": "git",
-            "url": "/home/romain/Desktop/xquery"
+            "url": "https://github.com/rohm1/Css2Xpath"
         }
     ],
     "require": {
@@ -11,7 +11,7 @@
     },
     "autoload": {
         "psr-0": {
-            "RPBase\\": ""
+            "RPBase\\XQuery\\": "src/"
         }
     }
 }

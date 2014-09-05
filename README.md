@@ -2,9 +2,11 @@ xQuery
 ======
 
 ```php
+use RPBase\XQuery\Event;
 use RPBase\XQuery\XQuery;
 
 $vals = [];
+$maxItems = 5;
 
 XQuery::load('
     <div id="root">
@@ -13,9 +15,14 @@ XQuery::load('
         </span>
         <div class="test">hello world!</div>
     </div>
-    ')->find('#root div.test')->each(function($node, $args) {
-        $args[0][] = $node->text();
-    }, [&$vals]);
+    ')->find('#root div.test')
+      ->each(function(XQuery $node, Event $event) use (&$vals, $maxItems) {
+        $vals[] = $node->text();
+
+        if (count($vals) >= $maxItems) {
+            $event->stopPropagation();
+        }
+    });
 
 var_dump($vals);
 // array(2) { [0]=> string(9) "blah blah" [1]=> string(12) "hello world!" }
