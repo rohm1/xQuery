@@ -7,6 +7,8 @@
 namespace RPBase\XQuery;
 
 use DOMDocument;
+use DOMElement;
+use DOMNodeList;
 use DOMXPath;
 
 use RPBase\Css2Xpath\Parser as Css2Xpath;
@@ -29,7 +31,7 @@ class XQuery
     protected $attrs;
 
     /**
-     * CSS selector used to create this object
+     * XPATH selector used to create this object
      *
      * @var string
      */
@@ -47,20 +49,21 @@ class XQuery
      *
      * @var int
      */
-    public $length;
+    protected $length;
 
     /**
      * Constructor
      *
      * @param mixed $doc The document to manipulate.
-     *     $doc can be any of (X)HTML string, a (X)HTML document location,
+     *     $doc can be any of a HTML string, a HTML document location (path, url),
      *     a DOMDocument, a DOMElement, or a DOMNodeList.
      * @param string $selector The selector used to create this instance.
      *     You should never set this.
-     * @param XQuery $prev The parent XQuery instance of this document.
+     * @param XQuery $prev The parent XQuery instance of this instance.
      *     You should never set this.
+     * @throws ImportException
      */
-    public function __construct($doc, $selector = '', XQuery $prev = null)
+    public function __construct($doc = null, $selector = '', XQuery $prev = null)
     {
         $this->selector = $selector;
         $this->prev = $prev;
@@ -71,20 +74,19 @@ class XQuery
 
     /**
      * @param mixed $doc
-     * @param string $selector
-     * @param \RPBase\XQuery\XQuery $prev
-     * @return \RPBase\XQuery\XQuery
+     * @return XQuery
+     * @throws ImportException
      */
-    public static function load($doc, $selector = '', XQuery $prev = null)
+    public static function load($doc)
     {
-        return new self($doc, $selector, $prev);
+        return new static($doc);
     }
 
     /**
      * Creates the DOMDocument
      *
      * @param mixed $doc
-     * @throws \RPBase\XQuery\XQueryImportException
+     * @throws ImportException
      */
     protected function createDOMDocument($doc)
     {
@@ -93,8 +95,14 @@ class XQuery
         $this->doc->preserveWhiteSpace = false;
         $this->doc->strictErrorChecking = false;
 
+        if ($doc === null) {
+            return;
+        }
+
         if (is_string($doc)) {
-            if (preg_match('#^<(!?)([a-zA-Z]+)#', trim($doc))) {
+            $doc = trim($doc);
+
+            if (preg_match('#^<(!?)(\w+)#', $doc)) {
                 return @$this->doc->loadHTML($doc);
             }
 
@@ -102,12 +110,12 @@ class XQuery
         }
 
         if (is_object($doc)) {
-            $class = get_class($doc);
-            if ($class == 'DOMElement') {
+
+            if ($doc instanceof DOMElement) {
                 return $this->doc->appendChild( $this->doc->importNode($doc, true) );
             }
 
-            if (in_array($class, ['DOMDocument', 'DOMNodeList'])) {
+            if ($doc instanceof DOMDocument || $doc instanceof DOMNodeList) {
                 foreach ($doc as $node) {
                     $this->doc->appendChild( $this->doc->importNode($node, true) );
                 }
@@ -116,40 +124,78 @@ class XQuery
             }
         }
 
-        throw new XQueryImportException('Unsuported document type submitted for import by XQuery');
+        throw new ImportException('Unsuported document type submitted for import by XQuery');
     }
+
+    /************************
+     *  Getters             *
+     ************************/
+
+    /**
+     * @return int
+     */
+    public function length()
+    {
+        return $this->length;
+    }
+
+    /**
+     * @return DOMDocument
+     */
+    public function getDocument()
+    {
+        return $this->doc;
+    }
+
+    /**
+     * Returns the set of matched elements to its previous state
+     *
+     * @return XQuery
+     */
+    public function end()
+    {
+        if (!$this->prev instanceof self) {
+            return new static();
+        }
+
+        return $this->prev;
+    }
+
+    /************************
+     *  Selecting           *
+     ************************/
 
     /**
      * Queries the DOM with a CSS selector
      *
      * @param string $selector
      * @param int $index
-     * @return \RPBase\XQuery\XQuery
+     * @return XQuery
      */
     public function find($selector, $index = -1)
     {
-        $xpath = $this->parse($selector);
+        $xpath = $this->parse($selector) .
+                 ($index != -1 ? '[position() = ' . ($index + 1) . ']' : '');
 
-        $dxpath = new DOMXPath($this->doc);
-        $res = $dxpath->query($xpath);
-
-        if ($index != -1) {
-            $res = $res->item($index);
-        }
-
-        return $this->mkRes($res, $selector);
+        return $this->query($this->doc, $xpath, true);
     }
 
     /**
      * Selects the $index node in the document
      *
      * @param int $index
-     * @return \RPBase\XQuery\XQuery
+     * @return XQuery
      */
     public function eq($index)
     {
-        return $this->mkRes($this->doc->childNodes->item($index));
+        $xpath = $this->selector . '[position() = ' . ($index + 1) . ']';
+
+        return $this->mkRes($this->doc->childNodes->item($index), $xpath);
     }
+
+    /************************
+     *  Manipulating        *
+     ************************/
 
     /**
      * Returns the text version of the document
@@ -179,13 +225,7 @@ class XQuery
      */
     public function attr($attr)
     {
-        $this->attrs();
-
-        if (!array_key_exists($attr, $this->attrs)) {
-            return null;
-        }
-
-        return $this->attrs[$attr];
+        return $this->hasAttribute($attr) ? $this->attrs[$attr] : null;
     }
 
     /**
@@ -198,8 +238,11 @@ class XQuery
         if ($this->attrs === null) {
 
             $this->attrs = [];
-            foreach ($this->doc->firstChild->attributes as $attribute) {
-                $this->attrs[$attribute->name] = $attribute->value;
+
+            if ($this->length != 0) {
+                foreach ($this->doc->firstChild->attributes as $attribute) {
+                    $this->attrs[$attribute->name] = $attribute->value;
+                }
             }
 
         }
@@ -208,32 +251,74 @@ class XQuery
     }
 
     /**
+     * Determine whether the document has a given attribute
+     *
+     * @param string $attr
+     * @return mixed
+     */
+    public function hasAttribute($attr)
+    {
+        return array_key_exists($attr, $this->attrs());
+    }
+
+    /**
+     * Tells whether the first element in the set matches the given selector
+     *
+     * @param string $selector
+     * @return bool
+     */
+    public function is($selector)
+    {
+        $xpath = 'self::*' . $this->parse($selector, true);
+
+        $res = $this->query($this->eq(0), $xpath);
+
+        return $res->length == 1;
+    }
+
+    /************************
+     *  Traversing          *
+     ************************/
+
+    /**
+     * Selects all the direct children of the current node, eventually
+     * filtered by a selector
+     *
+     * @param string $selector
+     * @return XQuery
+     */
+    public function children($selector = null)
+    {
+        $xpath = 'child::*' .
+                 (!empty($selector) ? $this->parse($selector, true) : '');
+
+        return $this->query($this, $xpath, true);
+    }
+
+    /**
      * Returns the parent node of the document
      *
-     * Note: This requires the current document is the result of
-     * a XQuery->find()
-     *
-     * @return \RPBase\XQuery\XQuery
+     * @return XQuery
      */
     public function parent()
     {
-        //TODO implement
+        $xpath = $this->selector . '/parent::*';
+
+        return $this->query($this->prev, $xpath, true);
     }
 
     /**
      * Returns a parent node of the document filtered by a selector
      *
-     * Note: This requires the current document is the result of
-     * a XQuery->find()
-     *
      * @param string $selector
-     * @return \RPBase\XQuery\XQuery
+     * @return XQuery
      */
     public function parents($selector)
     {
-        $xpath = $this->parse($selector);
+        $xpath = $this->selector .
+                 '/ancestor::*' . $this->parse($selector, true);
 
-        //TODO implement
+        return $this->query($this->prev, $xpath, true);
     }
 
     /**
@@ -241,13 +326,13 @@ class XQuery
      *
      * Callback prototype: void callback(XQuery $node, Event $event)
      *
-     * @param callable $callback a callback object
-     * @return \RPBase\XQuery\XQuery
+     * @param callable $callback
+     * @return XQuery
      * @see call_user_func
      */
     public function each($callback)
     {
-        if ($this->doc !== null) {
+        if ($this->length != 0) {
 
             // create a callback event we can use to break the loop
             $event = new Event();
@@ -265,15 +350,50 @@ class XQuery
         return $this;
     }
 
+    /************************
+     *  Utilities           *
+     ************************/
+
     /**
-     * Parses a CSS selector into a XPath
+     * Parses a CSS selector into a XPath expression
      *
      * @param string $selector
+     * @param bool $removeDeepTraversing
      * @return string
      */
-    protected function parse($selector)
+    protected function parse($selector, $removeDeepTraversing = false)
     {
-        return Css2Xpath::parse($selector);
+        $xpath = Css2Xpath::parse($selector);
+
+        if ($removeDeepTraversing) {
+            $xpath = preg_replace('#^/\*/descendant::\*#', '', $xpath);
+        }
+
+        return $xpath;
+    }
+
+    /**
+     * Executes a XPATH query on a document and returns the result
+     *
+     * @param mixed $doc
+     * @param string $xpath
+     * @param bool $mkResult
+     * @return DOMNodeList|XQuery
+     */
+    protected function query($doc, $xpath, $mkResult = false)
+    {
+        if ($doc instanceof self) {
+            $doc = $doc->getDocument();
+        }
+
+        if (!$doc instanceof DOMDocument) {
+            $res = new DOMNodeList();
+        } else {
+            $dxpath = new DOMXPath($doc);
+            $res = $dxpath->query($xpath);
+        }
+
+        return $mkResult ? $this->mkRes($res, $xpath) : $res;
     }
 
     /**
@@ -281,11 +401,11 @@ class XQuery
      *
      * @param DOMNodeList $res
      * @param string $selector
-     * @return \RPBase\XQuery\XQuery
+     * @return XQuery
      */
-    protected function mkRes($res, $selector = '')
+    protected function mkRes($res, $selector = null)
     {
-        return new XQuery($res, $selector != '' ? $selector : $this->selector, $this);
+        return new static($res, !empty($selector) ? $selector : $this->selector, $this);
     }
 
 }

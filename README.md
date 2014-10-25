@@ -34,11 +34,16 @@ XQuery make use of [rohm1/Css2Xpath](https://github.com/rohm1/Css2Xpath) to conv
 ##Methods##
  * attr
  * attrs
+ * children
+ * end
  * eq
  * each
  * find
+ * getDocument
+ * is
+ * hasAttribute
  * html
- * text
-
-##Attributes##
  * length
+ * parent
+ * parents
+ * text

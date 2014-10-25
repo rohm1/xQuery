@@ -6,6 +6,6 @@
 
 namespace RPBase\XQuery;
 
-class XQueryImportException extends \Exception
+class ImportException extends \Exception
 {
 }
