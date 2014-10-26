@@ -1,6 +1,8 @@
 xQuery
 ======
 
+[![Build Status](https://secure.travis-ci.org/rohm1/xQuery.png?branch=master)](http://travis-ci.org/rohm1/xQuery)
+
 ```php
 use RPBase\XQuery\Event;
 use RPBase\XQuery\XQuery;
@@ -44,6 +46,10 @@ XQuery make use of [rohm1/Css2Xpath](https://github.com/rohm1/Css2Xpath) to conv
  * hasAttribute
  * html
  * length
+ * next
+ * nextAll
  * parent
  * parents
+ * prev
+ * prevAll
  * text
