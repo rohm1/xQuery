@@ -4,6 +4,7 @@ namespace RPBaseTest\XQuery;
 
 use RPBase\XQuery\Event;
 use RPBase\XQuery\XQuery;
+use RPBase\XQuery\ImportException;
 
 class XQueryTest extends \PHPUnit_Framework_TestCase
 {
@@ -29,6 +30,25 @@ class XQueryTest extends \PHPUnit_Framework_TestCase
         ';
     }
 
+    public function testImports()
+    {
+        $doc = new \DOMDocument();
+        $doc->loadHTML($this->getSimpleHtml());
+        $x = XQuery::load($doc);
+        $this->assertEquals(1, $x->find('#root')->length());
+
+        $x = XQuery::load($this->getSimpleHtml());
+        $this->assertEquals(1, $x->find('#root')->length());
+
+        file_put_contents('__testfile.html', $this->getSimpleHtml());
+        $x = XQuery::load('__testfile.html');
+        @unlink('__testfile.html');
+        $this->assertEquals(1, $x->find('#root')->length());
+
+        $this->setExpectedException('\RPBase\XQuery\ImportException');
+        XQuery::load(true);
+    }
+
     public function testFind()
     {
         $doc = XQuery::load( $this->getSimpleHtml() );
@@ -40,9 +60,17 @@ class XQueryTest extends \PHPUnit_Framework_TestCase
     public function testEach()
     {
         $vals = [];
-        $maxItems = 5;
 
         XQuery::load( $this->getSimpleHtml() )->find('#root div.test')
+              ->each(function(XQuery $node) use (&$vals) {
+                $vals[] = $node->text();
+            });
+
+        $this->assertEquals(2, count($vals));
+
+        $maxItems = 5;
+
+        XQuery::load( $this->getSimpleHtml() )->find('*')
               ->each(function(XQuery $node, Event $event) use (&$vals, $maxItems) {
                 $vals[] = $node->text();
 
@@ -51,7 +79,7 @@ class XQueryTest extends \PHPUnit_Framework_TestCase
                 }
             });
 
-        $this->assertEquals(2, count($vals));
+        $this->assertEquals(5, count($vals));
     }
 
     public function testEq()
@@ -76,16 +104,36 @@ class XQueryTest extends \PHPUnit_Framework_TestCase
 
     public function testEnd()
     {
-        $doc = XQuery::load( $this->getSimpleHtml() )->find('#my_id');
-        $childs = $doc->find('.test');
+        $doc = XQuery::load( $this->getSimpleHtml() );
+
+        $id = $doc->find('#my_id');
+        $childs = $id->find('.test');
         $firstChild = $childs->eq(0);
 
+        $this->assertEquals(0, $doc->end()->length());
         $this->assertEquals(2, $childs->length());
         $this->assertEquals(1, $firstChild->length());
         $this->assertEquals(2, $firstChild->end()->length());
         $this->assertEquals($childs, $firstChild->end());
-        $this->assertEquals($doc, $firstChild->end()->end());
-        $this->assertEquals($doc, $childs->end());
+        $this->assertEquals($id, $firstChild->end()->end());
+        $this->assertEquals($id, $childs->end());
+        $this->assertEquals($doc, $id->end());
+    }
+
+    public function testContent()
+    {
+        $doc = XQuery::load( $this->getSimpleHtml() )->find('.test');
+
+        $this->assertEquals('<div class="test test1">blah blah</div>', trim($doc->eq(0)->html()));
+        $this->assertEquals('hello world!', trim($doc->eq(2)->text()));
+    }
+
+    public function testAttributes()
+    {
+        $doc = XQuery::load( $this->getSimpleHtml() )->find('.test');
+
+        $this->assertEquals('test test1', $doc->attr('class'));
+        $this->assertNull($doc->attr('id'));
     }
 
     public function testSelectChildren()
