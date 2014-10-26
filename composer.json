@@ -9,6 +9,9 @@
     "require": {
         "rohm1/css2xpath": "dev-master"
     },
+    "require-dev": {
+        "satooshi/php-coveralls": "dev-master"
+    },
     "autoload": {
         "psr-0": {
             "RPBase\\XQuery\\": "src/"
