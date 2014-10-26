@@ -13,9 +13,9 @@ class XQueryTest extends \PHPUnit_Framework_TestCase
         return '
             <div id="root">
                 <span id="my_id" class="hello-world lol">
-                    <div class="test">blah blah</div>
+                    <div class="test test1">blah blah</div>
                     <div class="tested">blah blah</div>
-                    <p class="test">blah blah</p>
+                    <p class="test test2">blah blah</p>
                     <p class="with-child">
                         <span class="child1">child1</span>
                         <span class="child2">child2</span>
@@ -124,6 +124,46 @@ class XQueryTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals(0, $childs->parents('p')->length());
         $this->assertEquals(1, $childs->parents('#my_id')->length());
         $this->assertEquals(2, $childs->parents('div')->length());
+    }
+
+    public function testNext()
+    {
+        $doc = XQuery::load( $this->getSimpleHtml() )->find('.test1');
+
+        $this->assertTrue($doc->next()->is('.tested'));
+        $this->assertTrue($doc->next()->next()->is('.test2'));
+        $this->assertTrue($doc->next()->next()->next()->is('.with-child'));
+
+        $this->assertEquals(0, $doc->next('.test2')->length());
+        $this->assertEquals(1, $doc->next('.tested')->length());
+    }
+
+    public function testNextAll()
+    {
+        $doc = XQuery::load( $this->getSimpleHtml() )->find('.test1');
+
+        $this->assertEquals(3, $doc->nextAll()->length());
+        $this->assertEquals(1, $doc->nextAll('.test2')->length());
+    }
+
+    public function testPrev()
+    {
+        $doc = XQuery::load( $this->getSimpleHtml() )->find('.with-child');
+
+        $this->assertTrue($doc->prev()->is('.test2'));
+        $this->assertTrue($doc->prev()->prev()->is('.tested'));
+        $this->assertTrue($doc->prev()->prev()->prev()->is('.test1'));
+
+        $this->assertEquals(0, $doc->prev('.test1')->length());
+        $this->assertEquals(1, $doc->prev('.test2')->length());
+    }
+
+    public function testPrevAll()
+    {
+        $doc = XQuery::load( $this->getSimpleHtml() )->find('.test1');
+
+        $this->assertEquals(3, $doc->nextAll()->length());
+        $this->assertEquals(1, $doc->nextAll('.test2')->length());
     }
 
 }

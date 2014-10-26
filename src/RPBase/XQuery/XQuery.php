@@ -45,6 +45,13 @@ class XQuery
     protected $prev = null;
 
     /**
+     * Top document
+     *
+     * @var XQuery
+     */
+    protected $root = null;
+
+    /**
      * Number of child nodes
      *
      * @var int
@@ -61,12 +68,15 @@ class XQuery
      *     You should never set this.
      * @param XQuery $prev The parent XQuery instance of this instance.
      *     You should never set this.
+     * @param XQuery $root The top XQuery instance of this instance.
+     *     You should never set this.
      * @throws ImportException
      */
-    public function __construct($doc = null, $selector = '', XQuery $prev = null)
+    public function __construct($doc = null, $selector = '', XQuery $prev = null, $root = null)
     {
         $this->selector = $selector;
         $this->prev = $prev;
+        $this->root = $root;
 
         $this->createDOMDocument($doc);
         $this->length = $this->doc->childNodes->length;
@@ -90,6 +100,11 @@ class XQuery
      */
     protected function createDOMDocument($doc)
     {
+        if ($doc instanceof DOMDocument) {
+            $this->doc = $doc;
+            return;
+        }
+
         $this->doc = new DOMDocument();
         $this->doc->validateOnParse = true;
         $this->doc->preserveWhiteSpace = false;
@@ -102,26 +117,23 @@ class XQuery
         if (is_string($doc)) {
             $doc = trim($doc);
 
-            if (preg_match('#^<(!?)(\w+)#', $doc)) {
+            if (preg_match('#^<!?\w+#', $doc)) {
                 return @$this->doc->loadHTML($doc);
             }
 
             return @$this->doc->loadHTMLFile($doc);
         }
 
-        if (is_object($doc)) {
+        if ($doc instanceof DOMElement) {
+            return $this->doc->appendChild( $this->doc->importNode($doc, true) );
+        }
 
-            if ($doc instanceof DOMElement) {
-                return $this->doc->appendChild( $this->doc->importNode($doc, true) );
+        if ($doc instanceof DOMNodeList) {
+            foreach ($doc as $node) {
+                $this->doc->appendChild( $this->doc->importNode($node, true) );
             }
 
-            if ($doc instanceof DOMDocument || $doc instanceof DOMNodeList) {
-                foreach ($doc as $node) {
-                    $this->doc->appendChild( $this->doc->importNode($node, true) );
-                }
-
-                return;
-            }
+            return;
         }
 
         throw new ImportException('Unsuported document type submitted for import by XQuery');
@@ -161,6 +173,16 @@ class XQuery
         return $this->prev;
     }
 
+    /**
+     * Returns the root object
+     *
+     * @return XQuery
+     */
+    public function root()
+    {
+        return $this->root;
+    }
+
     /************************
      *  Selecting           *
      ************************/
@@ -177,7 +199,7 @@ class XQuery
         $xpath = $this->parse($selector) .
                  ($index != -1 ? '[position() = ' . ($index + 1) . ']' : '');
 
-        return $this->query($this->doc, $xpath, true);
+        return $this->queryAndResult($this->doc, $xpath);
     }
 
     /**
@@ -281,6 +303,92 @@ class XQuery
      ************************/
 
     /**
+     * Executes a traversal query on the document given an axis, and returns
+     * the result as an XQuery object
+     *
+     * @param mixed $doc
+     * @param string $axis
+     * @param string $selector
+     * @param string $baseSelector
+     * @param bool $useDocAsRoot
+     * @return XQuery
+     */
+    protected function traverse($doc, $axis, $selector = null, $baseSelector = null, $useDocAsRoot = false)
+    {
+        $xpath = (!empty($baseSelector) ? $baseSelector . '/' : '') .
+                 $axis . '::*' .
+                 (!empty($selector) ? $this->parse($selector, true) : '');
+
+        return $this->queryAndResult($doc, $xpath, $useDocAsRoot ? $doc : null);
+    }
+
+    /**
+     * Traverses the following or preceding siblings
+     *
+     * @param string $axis
+     * @param string $selector
+     * @return XQuery
+     */
+    protected function siblingTraverse($axis, $selector = null)
+    {
+        $doc = $this->prev;
+        $index = 1;
+        $baseSelector = $this->selector;
+
+        if (preg_match('/(?<base>.+)\/' . $axis . '-sibling::\*\[position\(\) = (?<position>\d)+\]$/', $this->selector, $match)) {
+            $doc = $this->root();
+            $index = $match['position']+1;
+            $baseSelector = $match['base'];
+        }
+
+        $res = $this->traverse($doc, $axis . '-sibling', ':nth-child(' . $index . ')', $baseSelector, true);
+
+        return empty($selector) || $res->is($selector) ? $res : $this->mkRes(new DOMNodeList());
+    }
+
+    /**
+     * Selects the immediately following sibling of each element in the set
+     *
+     * @param string $selector
+     * @return XQuery
+     */
+    public function next($selector = null)
+    {
+        return $this->siblingTraverse('following', $selector);
+    }
+
+    /**
+     * Selects all the following siblings of each element in the set
+     *
+     * @return XQuery
+     */
+    public function nextAll($selector = null)
+    {
+        return $this->traverse($this->prev, 'following-sibling', $selector, $this->selector);
+    }
+
+    /**
+     * Selects the immediately preceding sibling of each element in the set
+     *
+     * @param string $selector
+     * @return XQuery
+     */
+    public function prev($selector = null)
+    {
+        return $this->siblingTraverse('preceding', $selector);
+    }
+
+    /**
+     * Selects all the preceding siblings of each element in the set
+     *
+     * @return XQuery
+     */
+    public function prevAll($selector = null)
+    {
+        return $this->traverse($this->prev, 'preceding-sibling', $selector, $this->selector);
+    }
+
+    /**
      * Selects all the direct children of the current node, eventually
      * filtered by a selector
      *
@@ -289,10 +397,7 @@ class XQuery
      */
     public function children($selector = null)
     {
-        $xpath = 'child::*' .
-                 (!empty($selector) ? $this->parse($selector, true) : '');
-
-        return $this->query($this, $xpath, true);
+        return $this->traverse($this, 'child', $selector);
     }
 
     /**
@@ -302,9 +407,7 @@ class XQuery
      */
     public function parent()
     {
-        $xpath = $this->selector . '/parent::*';
-
-        return $this->query($this->prev, $xpath, true);
+        return $this->traverse($this->prev, 'parent', null, $this->selector);
     }
 
     /**
@@ -315,10 +418,7 @@ class XQuery
      */
     public function parents($selector)
     {
-        $xpath = $this->selector .
-                 '/ancestor::*' . $this->parse($selector, true);
-
-        return $this->query($this->prev, $xpath, true);
+        return $this->traverse($this->prev, 'ancestor', $selector, $this->selector);
     }
 
     /**
@@ -373,39 +473,55 @@ class XQuery
     }
 
     /**
+     * Queries the document with an XPATH expression and returns the result
+     * as an XQuery object
+     *
+     * @param mixed $doc
+     * @param string $xpath
+     * @param XQuery $root
+     * @return XQuery
+     */
+    protected function queryAndResult($doc, $xpath, $root = null)
+    {
+        return $this->mkRes($this->query($doc, $xpath), $xpath, $root);
+    }
+
+    /**
      * Executes a XPATH query on a document and returns the result
      *
      * @param mixed $doc
      * @param string $xpath
-     * @param bool $mkResult
-     * @return DOMNodeList|XQuery
+     * @return DOMNodeList
      */
-    protected function query($doc, $xpath, $mkResult = false)
+    protected function query($doc, $xpath)
     {
         if ($doc instanceof self) {
             $doc = $doc->getDocument();
         }
 
         if (!$doc instanceof DOMDocument) {
-            $res = new DOMNodeList();
-        } else {
-            $dxpath = new DOMXPath($doc);
-            $res = $dxpath->query($xpath);
+            return new DOMNodeList();
         }
 
-        return $mkResult ? $this->mkRes($res, $xpath) : $res;
+        $dxpath = new DOMXPath($doc);
+        return $dxpath->query($xpath);
     }
 
     /**
      * Creates the object to return
      *
-     * @param DOMNodeList $res
+     * @param mixed $res
      * @param string $selector
+     * @param XQuery $root
      * @return XQuery
      */
-    protected function mkRes($res, $selector = null)
+    protected function mkRes($res, $selector = null, $root = null)
     {
-        return new static($res, !empty($selector) ? $selector : $this->selector, $this);
+        if ($root === null) {
+            $root = $this->prev === null ? $this : $this->prev;
+        }
+
+        return new static($res, !empty($selector) ? $selector : $this->selector, $this, $root);
     }
 
 }
