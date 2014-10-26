@@ -1,7 +1,5 @@
-xQuery
+xQuery [![Build Status](https://secure.travis-ci.org/rohm1/xQuery.png?branch=master)](http://travis-ci.org/rohm1/xQuery) [![Coverage Status](https://coveralls.io/repos/rohm1/xQuery/badge.png?branch=master)](https://coveralls.io/r/rohm1/xQuery)
 ======
-
-[![Build Status](https://secure.travis-ci.org/rohm1/xQuery.png?branch=master)](http://travis-ci.org/rohm1/xQuery)
 
 ```php
 use RPBase\XQuery\Event;

@@ -160,10 +160,10 @@ class XQueryTest extends \PHPUnit_Framework_TestCase
 
     public function testPrevAll()
     {
-        $doc = XQuery::load( $this->getSimpleHtml() )->find('.test1');
+        $doc = XQuery::load( $this->getSimpleHtml() )->find('.with-child');
 
-        $this->assertEquals(3, $doc->nextAll()->length());
-        $this->assertEquals(1, $doc->nextAll('.test2')->length());
+        $this->assertEquals(3, $doc->prevAll()->length());
+        $this->assertEquals(1, $doc->prevAll('.test2')->length());
     }
 
 }
