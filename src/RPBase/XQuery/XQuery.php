@@ -117,11 +117,15 @@ class XQuery
         if (is_string($doc)) {
             $doc = trim($doc);
 
-            if (preg_match('#^<!?\w+#', $doc)) {
-                return @$this->doc->loadHTML($doc);
+            if (!preg_match('#^<!?\w+#', $doc)) {
+                $doc = file_get_contents($doc);
             }
 
-            return @$this->doc->loadHTMLFile($doc);
+            // html cleaning: remove script tags
+            $doc = preg_replace('#<((no)?script).*>.*</\1>#iUms', '', $doc);
+
+            $this->doc->loadHTML($doc);
+            return;
         }
 
         if ($doc instanceof DOMElement) {
