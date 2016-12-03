@@ -15,7 +15,6 @@ use RPBase\Css2Xpath\Parser as Css2Xpath;
 
 class XQuery
 {
-
     /**
      * The document
      *
@@ -64,20 +63,10 @@ class XQuery
      * @param mixed $doc The document to manipulate.
      *     $doc can be any of a HTML string, a HTML document location (path, url),
      *     a DOMDocument, a DOMElement, or a DOMNodeList.
-     * @param string $selector The selector used to create this instance.
-     *     You should never set this.
-     * @param XQuery $prev The parent XQuery instance of this instance.
-     *     You should never set this.
-     * @param XQuery $root The top XQuery instance of this instance.
-     *     You should never set this.
      * @throws ImportException
      */
-    public function __construct($doc = null, $selector = '', XQuery $prev = null, $root = null)
+    public function __construct($doc = null)
     {
-        $this->selector = $selector;
-        $this->prev = $prev;
-        $this->root = $root;
-
         $this->createDOMDocument($doc);
         $this->length = $this->doc->childNodes->length;
     }
@@ -96,6 +85,7 @@ class XQuery
      * Creates the DOMDocument
      *
      * @param mixed $doc
+     * @return mixed
      * @throws ImportException
      */
     protected function createDOMDocument($doc)
@@ -118,14 +108,18 @@ class XQuery
             $doc = trim($doc);
 
             if (!preg_match('#^<!?\w+#', $doc)) {
-                $doc = file_get_contents($doc);
+                $opts = [
+                    'http'=> [
+                        'method' => 'GET',
+                        'header'=> 'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:50.0) Gecko/20100101 Firefox/50.0\r\n'
+                    ]
+                ];
+
+                $context = stream_context_create($opts);
+                $doc = file_get_contents($doc, false, $context);
             }
 
-            // html cleaning: remove script tags
-            $doc = preg_replace('#<((no)?script).*>.*</\1>#iUms', '', $doc);
-
-            $this->doc->loadHTML($doc);
-            return;
+            return @$this->doc->loadHTML($doc);
         }
 
         if ($doc instanceof DOMElement) {
@@ -170,7 +164,7 @@ class XQuery
      */
     public function end()
     {
-        if (!$this->prev instanceof self) {
+        if (!($this->prev instanceof self)) {
             return new static();
         }
 
@@ -200,8 +194,8 @@ class XQuery
      */
     public function find($selector, $index = -1)
     {
-        $xpath = $this->parse($selector) .
-                 ($index != -1 ? '[position() = ' . ($index + 1) . ']' : '');
+        $xpath = $this->parse($selector)
+                . ($index != -1 ? '[position() = ' . ($index + 1) . ']' : '');
 
         return $this->queryAndResult($this->doc, $xpath);
     }
@@ -262,7 +256,6 @@ class XQuery
     public function attrs()
     {
         if ($this->attrs === null) {
-
             $this->attrs = [];
 
             if ($this->length != 0) {
@@ -319,9 +312,9 @@ class XQuery
      */
     protected function traverse($doc, $axis, $selector = null, $baseSelector = null, $useDocAsRoot = false)
     {
-        $xpath = (!empty($baseSelector) ? $baseSelector . '/' : '') .
-                 $axis . '::*' .
-                 (!empty($selector) ? $this->parse($selector, true) : '');
+        $xpath = (!empty($baseSelector) ? $baseSelector . '/' : '')
+                . $axis . '::*'
+                . (!empty($selector) ? $this->parse($selector, true) : '');
 
         return $this->queryAndResult($doc, $xpath, $useDocAsRoot ? $doc : null);
     }
@@ -503,7 +496,7 @@ class XQuery
             $doc = $doc->getDocument();
         }
 
-        if (!$doc instanceof DOMDocument) {
+        if (!($doc instanceof DOMDocument)) {
             return new DOMNodeList();
         }
 
@@ -522,10 +515,14 @@ class XQuery
     protected function mkRes($res, $selector = null, $root = null)
     {
         if ($root === null) {
-            $root = $this->prev === null ? $this : $this->prev;
+            $root = $this->root === null ? $this : $this->root;
         }
 
-        return new static($res, !empty($selector) ? $selector : $this->selector, $this, $root);
-    }
+        $res = new static($res);
+        $res->selector = !empty($selector) ? $selector : $this->selector;
+        $res->prev = $this;
+        $res->root = $root;
 
+        return $res;
+    }
 }
